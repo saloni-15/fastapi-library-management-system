@@ -56,7 +56,7 @@ class StudentCollection(BaseModel):
 
     students: List[Student.StudentModel]
 
-# Create new student
+# ---------------------------------------------Create new student----------------------------------------------
 @app.post(
     "/students/",
     response_description="A JSON response sending back the ID of the newly created student record.",
@@ -83,7 +83,7 @@ async def create_student(student: Student.StudentModel = Body(...)):
 
 
 
-#Get all students
+# --------------------------------------------------Get all students---------------------------------------------------------
 @app.get(
     "/students/",
     response_description="List filtered students",
@@ -99,20 +99,19 @@ async def list_filtered_students(query_params: StudentFilterParams = Depends()):
     students = None
     if (query_params.country != None and query_params.age != None):
         students = await student_collection.find({"address.country": query_params.country, "age": {"$gte": query_params.age}}).to_list(1000)
-        #students =  await student_collection.find(f'{{"address.country": {query_params.country}, "age": {{"$gte": {query_params.age}}}}}')
     elif (query_params.country != None):
-        students =  await student_collection.find({"address.country": query_params.country})
+        students =  await student_collection.find({"address.country": query_params.country}).to_list(1000)
     elif (query_params.age != None):
-        students =  await student_collection.find({"age": {"$gte": query_params.age}})
+        students =  await student_collection.find({"age": {"$gte": query_params.age}}).to_list(1000)
     else:
         students = await student_collection.find().to_list(1000)
+        
     response = []
     for student in students:
         print("printtt" , student)
         res = SearchStudent(name = student["name"], age = student["age"])
         response.append(res)   
-
-    print(students)
+        
     return SearchStudentResponse(data = response)
 
 
