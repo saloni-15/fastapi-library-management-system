@@ -1,10 +1,11 @@
 import os
-from typing import Optional, List
+from typing import List
 
 from Models.SearchStudentResponse import SearchStudent, SearchStudentResponse
+from Models.StudentWithId import StudentWithId
 from fastapi import Depends, FastAPI, Body, HTTPException, status
 from fastapi.responses import Response
-from pydantic import ConfigDict, BaseModel, Field, EmailStr
+from pydantic import BaseModel
 from Models.StudentFilterParams import StudentFilterParams
 
 from bson import ObjectId
@@ -20,31 +21,6 @@ app = FastAPI(
 client = motor.motor_asyncio.AsyncIOMotorClient(os.environ["MONGODB_URL"])
 db = client.get_database("libraryDB")
 student_collection = db.get_collection("students")
-
-
-
-    
-class UpdateStudentModel(BaseModel):
-    """
-    A set of optional updates to be made to a document in the database.
-    """
-
-    name: Optional[str] = None
-    email: Optional[EmailStr] = None
-    course: Optional[str] = None
-    gpa: Optional[float] = None
-    model_config = ConfigDict(
-        arbitrary_types_allowed=True,
-        json_encoders={ObjectId: str},
-        json_schema_extra={
-            "example": {
-                "name": "Jane Doe",
-                "email": "jdoe@example.com",
-                "course": "Experiments, Science, and Fashion in Nanophotonics",
-                "gpa": 3.0,
-            }
-        },
-    )
 
 
 class StudentCollection(BaseModel):
@@ -65,7 +41,6 @@ class StudentCollection(BaseModel):
     response_model_by_alias=False,
 )
 async def create_student(student: Student.StudentModel = Body(...)):
-    print("creating student...")
     """
     Insert a new student record.
 
@@ -77,7 +52,6 @@ async def create_student(student: Student.StudentModel = Body(...)):
     created_student = await student_collection.find_one(
         {"_id": new_student.inserted_id}
     )
-    print("created student: ", new_student.inserted_id)
     response = StudentId.StudentId(id = str(new_student.inserted_id))
     return response
 
@@ -111,8 +85,70 @@ async def list_filtered_students(query_params: StudentFilterParams = Depends()):
         print("printtt" , student)
         res = SearchStudent(name = student["name"], age = student["age"])
         response.append(res)   
-        
+
     return SearchStudentResponse(data = response)
 
 
+# -------------------------------------------Get a single student with requested id-----------------------------------------
+@app.get(
+    "/students/{id}",
+    response_description="Get a single student",
+    response_model=StudentWithId,
+    response_model_by_alias=False,
+)
+async def show_student(id: str):
+    """
+    Get the record for a specific student, looked up by `id`.
+    """
+    if (
+        student := await student_collection.find_one({"_id": ObjectId(id)})
+    ) is not None:
+        return student
 
+    raise HTTPException(status_code=404, detail=f"Student {id} not found")
+
+
+#------------------------------------------Update details of given student id------------------------------------------------
+@app.patch(
+    "/students/{id}",
+    response_description="Update a student",
+    response_model_by_alias=False,
+    status_code=status.HTTP_204_NO_CONTENT
+)
+async def update_student(id: str, student: StudentWithId = Body(...)):
+    """
+    Update individual fields of an existing student record.
+
+    Only the provided fields will be updated.
+    Any missing or `null` fields will be ignored.
+    """
+    student = {
+        k: v for k, v in student.model_dump(by_alias=True, exclude_unset=True).items() if v is not None
+    }
+
+    if len(student) >= 1:
+        update_result = await student_collection.find_one_and_update(
+            {"_id": ObjectId(id)},
+            {"$set": student},
+            return_document=ReturnDocument.AFTER,
+        )
+        if update_result is not None:
+            return Response(status_code=status.HTTP_204_NO_CONTENT)
+        else:
+            raise HTTPException(status_code=404, detail=f"Student {id} not found")
+
+    raise HTTPException(status_code=404, detail=f"Student {id} not found")
+
+
+# ---------------------------------------------Delete a Student-----------------------------------------------------------
+@app.delete("/students/{id}", response_description="Delete a student")
+async def delete_student(id: str):
+    """
+    Remove a single student record from the database.
+    """
+    delete_result = await student_collection.delete_one({"_id": ObjectId(id)})
+
+    if delete_result.deleted_count == 1:
+        return Response(status_code=status.HTTP_200_OK)
+
+    raise HTTPException(status_code=404, detail=f"Student {id} not found")
